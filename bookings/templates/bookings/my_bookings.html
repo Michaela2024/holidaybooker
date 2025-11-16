@@ -1,0 +1,207 @@
+{% extends "bookings/layout.html" %}
+
+{% block title %}My Bookings{% endblock %}
+
+{% block body %}
+<h1 class="mb-4">My Bookings</h1>
+
+{% if bookings %}
+    <div class="row">
+        {% for booking in bookings %}
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>{{ booking.property.title }}</strong>
+                    {% if booking.status == 'confirmed' %}
+                        <span class="badge bg-success">{{ booking.get_status_display }}</span>
+                    {% elif booking.status == 'cancelled' %}
+                        <span class="badge bg-danger">{{ booking.get_status_display }}</span>
+                    {% else %}
+                        <span class="badge bg-warning">{{ booking.get_status_display }}</span>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">📍 {{ booking.property.location }}</h6>
+                    
+                    <div class="row mt-3">
+                        <div class="col-6">
+                            <small class="text-muted">Check-in</small><br>
+                            <strong>{{ booking.check_in|date:"d M Y" }}</strong>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Check-out</small><br>
+                            <strong>{{ booking.check_out|date:"d M Y" }}</strong>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="row">
+                        <div class="col-6">
+                            <small class="text-muted">Guests</small><br>
+                            <strong>{{ booking.num_guests }}</strong>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Total Price</small><br>
+                            <strong class="text-success">£{{ booking.total_price }}</strong>
+                        </div>
+                    </div>
+
+                    <small class="text-muted d-block mt-3">
+                        Booked on: {{ booking.created_at|date:"d M Y" }}
+                    </small>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'property_detail' booking.property.id %}" class="btn btn-sm btn-outline-primary">View Property</a>
+                    <button class="btn btn-sm btn-warning" 
+                            data-booking-id="{{ booking.id }}"
+                            data-check-in="{{ booking.check_in|date:'Y-m-d' }}"
+                            data-check-out="{{ booking.check_out|date:'Y-m-d' }}"
+                            data-num-guests="{{ booking.num_guests }}"
+                            data-max-guests="{{ booking.property.max_guests }}"
+                            onclick="openEditModal(this)">Edit</button>
+    <button class="btn btn-sm btn-danger" onclick="deleteBooking('{{ booking.id }}')">Cancel</button>
+</div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-info">
+        <h4>No bookings yet</h4>
+        <p>You haven't made any bookings yet. <a href="{% url 'index' %}">Browse properties</a> to get started!</p>
+    </div>
+{% endif %}
+
+<!-- Edit Booking Modal -->
+<div class="modal fade" id="editBookingModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Booking</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editBookingForm" method="post">
+                    <input type="hidden" id="booking_id">
+                    <div class="mb-3">
+                        <label for="edit_check_in" class="form-label">Check-in</label>
+                        <input type="date" class="form-control" id="edit_check_in" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_check_out" class="form-label">Check-out</label>
+                        <input type="date" class="form-control" id="edit_check_out" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_num_guests" class="form-label">Number of Guests</label>
+                        <input type="number" class="form-control" id="edit_num_guests" min="1" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveBooking()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Helper function to get CSRF token from cookie (recommended by Django docs)
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            cookie = cookie.trim();
+            if (cookie.startsWith(name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Open edit modal and populate fields
+function openEditModal(button) {
+    const bookingId = button.getAttribute('data-booking-id');
+    const checkIn = button.getAttribute('data-check-in');
+    const checkOut = button.getAttribute('data-check-out');
+    const numGuests = button.getAttribute('data-num-guests');
+    const maxGuests = button.getAttribute('data-max-guests');
+    
+    document.getElementById('booking_id').value = bookingId;
+    document.getElementById('edit_check_in').value = checkIn;
+    document.getElementById('edit_check_out').value = checkOut;
+    document.getElementById('edit_num_guests').value = numGuests;
+    document.getElementById('edit_num_guests').max = maxGuests;
+    
+    const modal = new bootstrap.Modal(document.getElementById('editBookingModal'));
+    modal.show();
+}
+
+// Delete booking (Cancel)
+function deleteBooking(bookingId) {
+    if (!confirm("Are you sure you want to cancel this booking?")) {
+        return;
+    }
+
+    const csrftoken = getCookie('csrftoken');
+
+    fetch(`/booking/${bookingId}/delete/`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'X-CSRFToken': csrftoken,
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert("Booking cancelled successfully.");
+            location.reload();
+        } else {
+            alert("Error: " + (data.error || "Unable to cancel booking."));
+        }
+    })
+    .catch(error => {
+        alert("An error occurred: " + error);
+    });
+}
+
+// Save booking changes
+function saveBooking() {
+    const bookingId = document.getElementById('booking_id').value;
+    const checkIn = document.getElementById('edit_check_in').value;
+    const checkOut = document.getElementById('edit_check_out').value;
+    const numGuests = document.getElementById('edit_num_guests').value;
+
+    // Get CSRF token safely from cookie
+    const csrftoken = getCookie('csrftoken');
+
+    // Send AJAX POST request
+    fetch('/booking/' + bookingId + '/edit/', {
+        method: 'POST',
+        credentials: 'same-origin',  
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': csrftoken
+        },
+        body: 'check_in=' + encodeURIComponent(checkIn) + 
+              '&check_out=' + encodeURIComponent(checkOut) + 
+              '&num_guests=' + encodeURIComponent(numGuests)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editBookingModal')).hide();
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('An error occurred: ' + error);
+    });
+}
+</script>
+{% endblock %}
